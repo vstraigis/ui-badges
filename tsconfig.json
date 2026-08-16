@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "use-live-poll": ["./packages/use-live-poll/src/index.ts"]
     }
   },
   "include": [

@@ -1,36 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Live Poll
 
-## Getting Started
+A single live poll, built to demonstrate a real-time, event-driven serverless backend and a tested, installable frontend on Next.js 16.
 
-First, run the development server:
+- **Backend**: a `PollStore` interface with two implementations — an in-memory store for local dev/tests, and a Redis-backed store (via [Upstash](https://upstash.com), REST-based and serverless-friendly) for production. Votes are deduped per-voter via a cookie + an atomic Redis `SADD`. Results are pushed to the browser over Server-Sent Events (`/api/poll/stream`), so votes appear live with no polling on the client.
+- **Frontend**: a small set of tested, composable components (`ResultsBars`, `VoteButtons`, `VoteIsland`), consuming a generic `useLivePoll` React hook published as its own npm package at [`packages/use-live-poll`](./packages/use-live-poll) — the app dogfoods its own published dependency.
+- **PWA**: `app/manifest.ts` makes the app installable (name, icons, theme color). There's no offline service worker — `@serwist/next`'s config wrapper only supports webpack, and Next.js 16 defaults to Turbopack for both `dev` and `build`; adding a separate build pipeline just for offline caching wasn't worth the complexity for this app.
+
+## Local development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). With no `.env.local`, the app automatically falls back to an in-memory poll store — no external account needed to develop or run tests.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm test        # vitest, runs against the in-memory store
+npm run typecheck
+npm run lint
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open the app in two browser windows side by side, vote in one, and watch the results update live in the other via SSE. Voting again from the same browser is treated as "already voted" (enforced server-side by a `voter_id` cookie, not just client state).
 
-## Learn More
+## Connecting a real Redis store
 
-To learn more about Next.js, take a look at the following resources:
+Local dev and CI never need this — it's only for a deployed environment where multiple serverless instances need to share vote state.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Create a free database at [Upstash](https://console.upstash.com/redis) and copy its REST URL and token.
+2. Copy `.env.local.example` to `.env.local` and fill in `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`.
+3. Restart `npm run dev` — `getPollStore()` picks the Redis-backed store automatically once both env vars are set.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploying
 
-## Deploy on Vercel
+Deployment is Vercel's git integration (connect the repo in the Vercel dashboard — no CLI/CI step needed):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Import the repo into Vercel.
+2. Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to the project's environment variables (Production and Preview).
+3. Deploy. Vercel's Node runtime supports the streaming `Response` used by `/api/poll/stream` out of the box.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+After deploying, repeat the two-window live-vote check against the production URL — this is the real test that updates propagate correctly across separate serverless instances, not just within one local process.
+
+## Publishing `use-live-poll`
+
+The hook in [`packages/use-live-poll`](./packages/use-live-poll) is written to have zero dependency on this app's types, so it can be published standalone:
+
+```bash
+cd packages/use-live-poll
+npm run build
+npm publish --access public
+```
+
+## CI
+
+`.github/workflows/ci.yml` runs lint, typecheck, tests, and a production build on every push/PR to `main` — all against the in-memory store, so no secrets are required in CI.
