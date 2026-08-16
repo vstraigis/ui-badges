@@ -30,15 +30,15 @@ export class RedisPollStore implements PollStore {
     const ids = await this.redis.lrange<string>(POLL_ORDER_KEY, 0, -1);
     if (ids.length === 0) return [];
 
-    const defs = await Promise.all(ids.map((id) => this.redis.hget<string>(POLL_DEFINITIONS_KEY, id)));
-    return defs.filter((def): def is string => def !== null).map((def) => JSON.parse(def) as Poll);
+    const defs = await Promise.all(ids.map((id) => this.redis.hget<Poll>(POLL_DEFINITIONS_KEY, id)));
+    return defs.filter((def): def is Poll => def !== null);
   }
 
   async getPoll(pollId: string): Promise<Poll | undefined> {
     await this.ensureSeeded();
 
-    const raw = await this.redis.hget<string>(POLL_DEFINITIONS_KEY, pollId);
-    return raw ? (JSON.parse(raw) as Poll) : undefined;
+    const poll = await this.redis.hget<Poll>(POLL_DEFINITIONS_KEY, pollId);
+    return poll ?? undefined;
   }
 
   async createPoll(input: CreatePollInput): Promise<Poll> {
@@ -105,7 +105,7 @@ export class RedisPollStore implements PollStore {
   private async ensureSeeded(): Promise<void> {
     if (this.seeded || !this.seedPoll) return;
 
-    const added = await this.redis.hsetnx(POLL_DEFINITIONS_KEY, this.seedPoll.id, JSON.stringify(this.seedPoll));
+    const added = await this.redis.hsetnx(POLL_DEFINITIONS_KEY, this.seedPoll.id, this.seedPoll);
     if (added === 1) {
       await this.redis.lpush(POLL_ORDER_KEY, this.seedPoll.id);
     }
@@ -113,7 +113,7 @@ export class RedisPollStore implements PollStore {
   }
 
   private async persistPoll(poll: Poll): Promise<void> {
-    await this.redis.hset(POLL_DEFINITIONS_KEY, { [poll.id]: JSON.stringify(poll) });
+    await this.redis.hset(POLL_DEFINITIONS_KEY, { [poll.id]: poll });
     await this.redis.lpush(POLL_ORDER_KEY, poll.id);
   }
 
