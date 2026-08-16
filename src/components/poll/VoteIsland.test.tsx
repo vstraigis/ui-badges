@@ -13,6 +13,15 @@ const POLL: Poll = {
   ],
 };
 
+const OTHER_POLL: Poll = {
+  id: "other-poll",
+  question: "Q2?",
+  options: [
+    { id: "a", label: "Option A" },
+    { id: "b", label: "Option B" },
+  ],
+};
+
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
   onopen: (() => void) | null = null;
@@ -30,14 +39,14 @@ class FakeEventSource {
   }
 }
 
-function renderIsland(alreadyVoted = false) {
+function renderIsland(alreadyVoted = false, poll: Poll = POLL) {
   return render(
     <VoteIsland
-      poll={POLL}
+      poll={poll}
       initialTally={{ a: 0, b: 0 }}
       initialTotalVotes={0}
-      streamUrl="/api/poll/stream"
-      voteUrl="/api/vote"
+      streamUrl={`/api/polls/${poll.id}/stream`}
+      voteUrl={`/api/polls/${poll.id}/vote`}
       alreadyVoted={alreadyVoted}
     />,
   );
@@ -67,7 +76,7 @@ describe("VoteIsland", () => {
 
     await waitFor(() => expect(screen.getByText("Thanks for voting!")).toBeInTheDocument());
     expect(fetch).toHaveBeenCalledWith(
-      "/api/vote",
+      "/api/polls/test-poll/vote",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ optionId: "a" }) }),
     );
   });
@@ -91,5 +100,18 @@ describe("VoteIsland", () => {
 
     await waitFor(() => expect(screen.getByText("Thanks for voting!")).toBeInTheDocument());
     expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+  });
+
+  it("does not treat a vote on one poll as a vote on another poll", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ pollId: "test-poll", tally: { a: 1, b: 0 }, totalVotes: 1 }), { status: 200 }),
+    );
+
+    renderIsland();
+    await userEvent.click(screen.getByRole("button", { name: "Option A" }));
+    await waitFor(() => expect(screen.getByText("Thanks for voting!")).toBeInTheDocument());
+
+    renderIsland(false, OTHER_POLL);
+    expect(screen.getByRole("button", { name: "Option A" })).toBeInTheDocument();
   });
 });

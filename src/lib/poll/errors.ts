@@ -11,3 +11,17 @@ export class DuplicateVoteError extends Error {
     this.name = "DuplicateVoteError";
   }
 }
+
+export class InvalidPollError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidPollError";
+  }
+}
+
+export class PollNotFoundError extends Error {
+  constructor(pollId: string) {
+    super(`No poll exists with id "${pollId}".`);
+    this.name = "PollNotFoundError";
+  }
+}

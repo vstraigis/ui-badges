@@ -1,16 +1,32 @@
-import { DuplicateVoteError, InvalidOptionError } from "./errors";
+import { DuplicateVoteError, InvalidOptionError, PollNotFoundError } from "./errors";
+import { buildPollFromInput, type CreatePollInput } from "./pollInput";
 import type { PollStore } from "./store";
 import type { Poll, Tally, TallyListener, TallySnapshot, Unsubscribe } from "./types";
 
 export class InMemoryPollStore implements PollStore {
-  private readonly poll: Poll;
-  private readonly tally: Tally;
-  private readonly voters = new Set<string>();
-  private readonly listeners = new Set<TallyListener>();
+  private readonly polls = new Map<string, Poll>();
+  private readonly tallies = new Map<string, Tally>();
+  private readonly voters = new Map<string, Set<string>>();
+  private readonly listeners = new Map<string, Set<TallyListener>>();
 
-  constructor(poll: Poll) {
-    this.poll = poll;
-    this.tally = Object.fromEntries(poll.options.map((option) => [option.id, 0]));
+  constructor(seedPoll?: Poll) {
+    if (seedPoll) {
+      this.addPoll(seedPoll);
+    }
+  }
+
+  async listPolls(): Promise<Poll[]> {
+    return [...this.polls.values()].reverse();
+  }
+
+  async getPoll(pollId: string): Promise<Poll | undefined> {
+    return this.polls.get(pollId);
+  }
+
+  async createPoll(input: CreatePollInput): Promise<Poll> {
+    const poll = buildPollFromInput(input);
+    this.addPoll(poll);
+    return poll;
   }
 
   async getTally(pollId: string): Promise<TallySnapshot> {
@@ -18,35 +34,57 @@ export class InMemoryPollStore implements PollStore {
   }
 
   async registerVote(pollId: string, optionId: string, voterId: string): Promise<TallySnapshot> {
-    if (!(optionId in this.tally)) {
+    const tally = this.tallies.get(pollId);
+    if (!tally) {
+      throw new PollNotFoundError(pollId);
+    }
+    if (!(optionId in tally)) {
       throw new InvalidOptionError(optionId);
     }
-    if (this.voters.has(voterId)) {
+
+    const voters = this.voters.get(pollId)!;
+    if (voters.has(voterId)) {
       throw new DuplicateVoteError();
     }
 
-    this.voters.add(voterId);
-    this.tally[optionId] += 1;
+    voters.add(voterId);
+    tally[optionId] += 1;
 
     const snapshot = this.snapshot(pollId);
-    for (const listener of this.listeners) {
+    for (const listener of this.listeners.get(pollId) ?? []) {
       listener(snapshot);
     }
     return snapshot;
   }
 
-  subscribe(_pollId: string, listener: TallyListener): Unsubscribe {
-    this.listeners.add(listener);
+  subscribe(pollId: string, listener: TallyListener): Unsubscribe {
+    let listeners = this.listeners.get(pollId);
+    if (!listeners) {
+      listeners = new Set();
+      this.listeners.set(pollId, listeners);
+    }
+    listeners.add(listener);
+
     let unsubscribed = false;
     return () => {
       if (unsubscribed) return;
       unsubscribed = true;
-      this.listeners.delete(listener);
+      listeners!.delete(listener);
     };
   }
 
+  private addPoll(poll: Poll): void {
+    this.polls.set(poll.id, poll);
+    this.tallies.set(poll.id, Object.fromEntries(poll.options.map((option) => [option.id, 0])));
+    this.voters.set(poll.id, new Set());
+  }
+
   private snapshot(pollId: string): TallySnapshot {
-    const totalVotes = Object.values(this.tally).reduce((sum, count) => sum + count, 0);
-    return { pollId, tally: { ...this.tally }, totalVotes };
+    const tally = this.tallies.get(pollId);
+    if (!tally) {
+      throw new PollNotFoundError(pollId);
+    }
+    const totalVotes = Object.values(tally).reduce((sum, count) => sum + count, 0);
+    return { pollId, tally: { ...tally }, totalVotes };
   }
 }

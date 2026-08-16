@@ -1,9 +1,15 @@
-import { POLL_ID } from "@/lib/poll/definition";
 import { getPollStore } from "@/lib/poll/store";
 import type { TallySnapshot, Unsubscribe } from "@/lib/poll/types";
 
-export async function GET(req: Request): Promise<Response> {
+export async function GET(req: Request, ctx: RouteContext<"/api/polls/[pollId]/stream">): Promise<Response> {
+  const { pollId } = await ctx.params;
   const store = getPollStore();
+
+  const poll = await store.getPoll(pollId);
+  if (!poll) {
+    return Response.json({ error: "Poll not found." }, { status: 404 });
+  }
+
   const encoder = new TextEncoder();
   let unsubscribe: Unsubscribe | undefined;
 
@@ -13,8 +19,8 @@ export async function GET(req: Request): Promise<Response> {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(snapshot)}\n\n`));
       };
 
-      send(await store.getTally(POLL_ID));
-      unsubscribe = store.subscribe(POLL_ID, send);
+      send(await store.getTally(pollId));
+      unsubscribe = store.subscribe(pollId, send);
     },
     cancel() {
       unsubscribe?.();

@@ -1,17 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { POLL_ID } from "@/lib/poll/definition";
-import { DuplicateVoteError, InvalidOptionError } from "@/lib/poll/errors";
+import { DuplicateVoteError, InvalidOptionError, PollNotFoundError } from "@/lib/poll/errors";
 import { getPollStore } from "@/lib/poll/store";
 import { getOrCreateVoterId, VOTER_COOKIE_NAME } from "@/lib/poll/voterId";
 
 const VOTER_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(
+  req: NextRequest,
+  ctx: RouteContext<"/api/polls/[pollId]/vote">,
+): Promise<NextResponse> {
+  const { pollId } = await ctx.params;
   const { optionId } = (await req.json()) as { optionId?: string };
   const { id: voterId, isNew } = getOrCreateVoterId(req.cookies);
 
   try {
-    const snapshot = await getPollStore().registerVote(POLL_ID, optionId ?? "", voterId);
+    const snapshot = await getPollStore().registerVote(pollId, optionId ?? "", voterId);
     const res = NextResponse.json(snapshot, { status: 200 });
 
     if (isNew) {
@@ -26,6 +29,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return res;
   } catch (error) {
+    if (error instanceof PollNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     if (error instanceof InvalidOptionError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

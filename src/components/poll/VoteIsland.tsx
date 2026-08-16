@@ -7,14 +7,12 @@ import { OfflineNotice } from "./OfflineNotice";
 import { ResultsBars } from "./ResultsBars";
 import { VoteButtons } from "./VoteButtons";
 
-const HAS_VOTED_KEY = "live-poll:has-voted";
+function hasVotedKey(pollId: string) {
+  return `live-poll:has-voted:${pollId}`;
+}
 
 function subscribeHasVoted() {
   return () => {};
-}
-
-function getStoredHasVoted() {
-  return window.localStorage.getItem(HAS_VOTED_KEY) === "true";
 }
 
 function getServerHasVoted() {
@@ -42,7 +40,11 @@ export function VoteIsland({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
-  const storedHasVoted = useSyncExternalStore(subscribeHasVoted, getStoredHasVoted, getServerHasVoted);
+  const storedHasVoted = useSyncExternalStore(
+    subscribeHasVoted,
+    () => window.localStorage.getItem(hasVotedKey(poll.id)) === "true",
+    getServerHasVoted,
+  );
   const hasVoted = alreadyVoted || votedThisSession || storedHasVoted;
 
   const { data, connected } = useLivePoll<Tally>(streamUrl, {
@@ -62,7 +64,7 @@ export function VoteIsland({
 
       if (res.status === 200 || res.status === 409) {
         setVotedThisSession(true);
-        window.localStorage.setItem(HAS_VOTED_KEY, "true");
+        window.localStorage.setItem(hasVotedKey(poll.id), "true");
         return;
       }
 
